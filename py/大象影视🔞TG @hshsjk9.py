@@ -56,7 +56,7 @@ class Spider(Spider):
             {"type_id": "3", "type_name": "综艺"},
             {"type_id": "4", "type_name": "动漫"},
             {"type_id": "30", "type_name": "日韩"},
-            {"type_id": "36", "type_name": "MV专区"},
+            {"type_id": "36", "type_name": "伦理"},
         ]
 
     def _fix_url(self, url):
