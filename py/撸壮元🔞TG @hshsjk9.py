@@ -112,6 +112,19 @@ class Spider(BaseSpider):
     def manualVideoCheck(self): return False
     def localProxy(self, param): return [404, "text/plain", b""]
 
+    @staticmethod
+    def _clean_text(text):
+        """清理文本：去除HTML标签、解码实体、规范化空白"""
+        if not text:
+            return ""
+        # 去除所有HTML标签
+        text = re.sub(r"<[^>]+>", "", text)
+        # 解码HTML实体（如 &amp; &lt; &nbsp; 等）
+        text = html_mod.unescape(text)
+        # 规范化空白字符（换行、制表符等转为单个空格）
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
     def _fetch(self, url):
         if not self.s:
             return ""
@@ -121,7 +134,15 @@ class Spider(BaseSpider):
             r = self.s.get(url, headers=merged, timeout=self.timeout)
             if r.status_code == 200:
                 try:
-                    r.encoding = r.apparent_encoding or "utf-8"
+                    # 优先从响应内容中解析 charset，避免 apparent_encoding 误判
+                    enc = r.apparent_encoding
+                    if enc and enc.lower() in ("iso-8859-1", "ascii", "windows-1252"):
+                        meta_enc = re.search(r'<meta[^>]*charset=["\']?([^"\'>]+)', r.content, re.I)
+                        if meta_enc:
+                            enc = meta_enc.group(1).strip()
+                        else:
+                            enc = "utf-8"
+                    r.encoding = enc or "utf-8"
                 except Exception:
                     r.encoding = "utf-8"
                 return r.text
@@ -157,7 +178,7 @@ class Spider(BaseSpider):
             r'<div class="thumb-item[^"]*"[^>]*>.*?'
             r'<a[^>]*href="[^"]*detail=(\d+)"[^>]*>.*?'
             r'<img[^>]*original="([^"]*)"[^>]*>.*?'
-            r'thumb-item__title[^>]*>([^<]+)</h2>',
+            r'thumb-item__title[^>]*>(.*?)</h2>',
             html, re.S
         )
 
@@ -168,7 +189,7 @@ class Spider(BaseSpider):
             seen.add(vid)
             result["list"].append({
                 "vod_id": vid,
-                "vod_name": html_mod.unescape(title.strip()),
+                "vod_name": self._clean_text(title),
                 "vod_pic": fix_url(pic, self.host),
             })
 
@@ -192,15 +213,15 @@ class Spider(BaseSpider):
         if not html:
             return result
 
-        # 标题
+        # 标题（修复：使用非贪婪匹配并清理内部标签，避免标题截断或包含HTML标签）
         title = ""
-        tm = re.search(r"<h1[^>]*>([^<]+)</h1>", html)
+        tm = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.S)
         if tm:
-            title = html_mod.unescape(tm.group(1).strip())
+            title = self._clean_text(tm.group(1))
         if not title:
-            tm2 = re.search(r'<title>([^<]+)</title>', html)
+            tm2 = re.search(r'<title>(.*?)</title>', html, re.S)
             if tm2:
-                title = html_mod.unescape(tm2.group(1).strip())
+                title = self._clean_text(tm2.group(1))
 
         # 封面
         pic = ""
@@ -273,7 +294,7 @@ class Spider(BaseSpider):
             r'<div class="thumb-item[^"]*"[^>]*>.*?'
             r'<a[^>]*href="[^"]*detail=(\d+)"[^>]*>.*?'
             r'<img[^>]*original="([^"]*)"[^>]*>.*?'
-            r'thumb-item__title[^>]*>([^<]+)</h2>',
+            r'thumb-item__title[^>]*>(.*?)</h2>',
             html, re.S
         )
 
@@ -284,7 +305,7 @@ class Spider(BaseSpider):
             seen.add(vid)
             result["list"].append({
                 "vod_id": vid,
-                "vod_name": html_mod.unescape(title.strip()),
+                "vod_name": self._clean_text(title),
                 "vod_pic": fix_url(pic, self.host),
             })
 
