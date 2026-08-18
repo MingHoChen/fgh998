@@ -83,7 +83,6 @@ class Spider(BaseSpider):
             {"type_id": "10091", "type_name": "人妻熟女"},
             {"type_id": "10092", "type_name": "强奸乱伦"},
             {"type_id": "10093", "type_name": "制服丝袜"},
-            {"type_id": "8968", "type_name": "黑暗幼女"},
         ]
 
     def init(self, extend=""):
