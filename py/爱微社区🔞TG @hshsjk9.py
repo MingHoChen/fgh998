@@ -1,224 +1,390 @@
 # -*- coding: utf-8 -*-
-import sys
+#!/usr/bin/env python3
+
 import re
 import json
-import requests
-from urllib.parse import quote
+import time
+import urllib.parse as urlparse
 
 try:
-    from base.spider import Spider
+    import requests as _requests
+    _HAS_REQ = True
 except ImportError:
-    from base.spider import Spider
+    _HAS_REQ = False
+    import urllib.request
 
-HOST = 'https://bav52.cc'
-HOSTS = ['https://bav52.cc', 'https://bav53.cc', 'https://bav62.cc', 'https://avjb.com']
-UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
-CATEGORIES = [
-    {"type_id": "new", "type_name": "最新"},
-    {"type_id": "f238838498ffcbbb9dec54cff3d68e1f", "type_name": "福利姬"},
-    {"type_id": "c8ed8a54e38ed0c5276281131a5a128e", "type_name": "网红"},
-    {"type_id": "d28b92e24cc1d6cb1e5e44c32f2c53bb", "type_name": "制服"},
-    {"type_id": "79981faea06a7ee7c0f04fb66bb54663", "type_name": "丝袜"},
-    {"type_id": "db7ad71b1af7e9f5a07a18aa1dc0daf0", "type_name": "御姐"},
-    {"type_id": "8abae1aec219fe06cf74b24338093e74", "type_name": "高颜值"},
-    {"type_id": "a686a94189bca9341082307e1ce07663", "type_name": "美女"},
-    {"type_id": "9b39cf7137c40ff936512e0f34f7f472", "type_name": "尤物"},
-    {"type_id": "239c00a652ca5330d6aaa4b49c2d724d", "type_name": "极品"},
-    {"type_id": "9a0cd4bae997e3e887e537453eac235c", "type_name": "姐姐"},
-    {"type_id": "b7d9f81d20aa9e44d1c129b9ba335fc4", "type_name": "成熟的女人"},
-    {"type_id": "d5dda49a594b691685feaadb9d7d1352", "type_name": "已婚女人"},
-    {"type_id": "32b531f1c1664ce095f938ed30543827", "type_name": "已婚妇女"},
-    {"type_id": "e69d1bdaa72210b0c599fdcaab0bf2cd", "type_name": "性感"},
-    {"type_id": "409463c53c9018e77e4293fef31cf4ab", "type_name": "私拍"},
-    {"type_id": "920ff7821a4fb5775a40a8aace6fdfcb", "type_name": "裸舞"},
-    {"type_id": "542e1afd76c7ea706511ef5f7ebf80fe", "type_name": "调教"},
-    {"type_id": "ed33a738add85dea56df71cffc7be030", "type_name": "高潮"},
-    {"type_id": "5c8163bf649cc7e5e4959f597f152755", "type_name": "自慰"},
-    {"type_id": "ae5655f7352b5ce0e7a161307a5c1b35", "type_name": "口交"},
-    {"type_id": "b33fb20acf363e469e8ed78c09a9098c", "type_name": "中出"},
-    {"type_id": "a4814e695b2ecfc35571261b8ef61d22", "type_name": "内射"},
-    {"type_id": "acb2fff953a2fc113feb9291acf42f1a", "type_name": "啪啪"},
-    {"type_id": "978b25a74287b9460f6ada67a09bc88c", "type_name": "白虎"},
-    {"type_id": "081dcb0707dbf724ff2288b8ff26d986", "type_name": "自拍"},
-    {"type_id": "e33cc5c74cbaff91e5708e787baf7cb1", "type_name": "合集"},
-    {"type_id": "c4427022dc5bdbe8503d905e7cc02eb3", "type_name": "福利"},
-    {"type_id": "6507c6a0e88c6c7e5697954e5e298675", "type_name": "主播"},
-    {"type_id": "449fb65a4e573a79f841806867176c48", "type_name": "女神"},
-    {"type_id": "2f62dec4a397b6a623431560eb75f31c", "type_name": "母狗"},
-    {"type_id": "ff0dab09a85e14aca3ae3d3add1f21a6", "type_name": "荡妇"},
-    {"type_id": "76c630d4dbb32cf90cc1e8dd448fafac", "type_name": "奇闻趣事"},
-    {"type_id": "e4e1d3efc7b6b8f6ab1710e7a507bcb5", "type_name": "大乳房"},
-    {"type_id": "478ac59966b81472230b7a1ad0b62c62", "type_name": "美丽的胸部"},
-    {"type_id": "ac966f94352daed5af9df932b9790dae", "type_name": "反差"},
-    {"type_id": "ac99bd13252867b827d283fc86cb8faf", "type_name": "细长的"},
-    {"type_id": "0053940855c6f53434b1e2ab3108ce4a", "type_name": "业余"},
-    {"type_id": "dd8b8266543a2a94c2439da757ccbc6d", "type_name": "美丽的女孩"},
-    {"type_id": "628f137420927a319756451b39f716f1", "type_name": "高视力"},
-    {"type_id": "594df1249e1ffe309cc0f1757a2f0c53", "type_name": "独家的"},
-    {"type_id": "571a16325e48458862fa3253cb2b9750", "type_name": "单一作品"},
-    {"type_id": "6c3afde44e16da0e78ff332970933fee", "type_name": "仅限送货"},
-    {"type_id": "4k", "type_name": "4K"},
-    {"type_id": "3fb45bdb43ca4aee2690ebaeffb973bc", "type_name": "推特"},
-    {"type_id": "onlyfans", "type_name": "OnlyFans"},
-    {"type_id": "f6dd4a7cc63f05cf7bd3b52bd45073ec", "type_name": "最新"},
-    {"type_id": "6b8a7db8f9f181757eb1f3bd1bbf4b80", "type_name": "淫妻"},
-    {"type_id": "e1132ac433d65a9f6b73d5c2a7d71370", "type_name": "网红2"},
-    {"type_id": "0773312bdeb075a53eefa401d99ec9cd", "type_name": "口交2"},
-    {"type_id": "827a793aea37e65a5e4de82dac880eab", "type_name": "工具"},
-    {"type_id": "ol7", "type_name": "哦"},
-]
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+SITE = "https://bav53.cc"
+SITE_NAME = "爱微社区"
 
-class Spider(Spider):
-    def init(self, extend=None):
-        self.session = requests.Session()
-        self.session.headers.update({'User-Agent': UA})
-        self.HOST = HOST
-        for host in HOSTS:
-            self.session.cookies.set('_safe', '1', domain=host.split('//')[1], path='/')
-        for host in HOSTS:
-            try:
-                r = self.session.get(host + '/new/', timeout=8)
-                if r.status_code == 200 and '/video/' in r.text:
-                    self.HOST = host
-                    break
-            except Exception:
+
+class Spider:
+    name = SITE_NAME
+    version = "1.1.0"
+
+    def __init__(self):
+        self.s = None
+        self.session = None
+        self.sess = None
+        self.extend = ""
+        self._safe = ""          # challenge cookie：_safe=<safeid>
+        self._http_init()
+
+    def _http_init(self):
+        if _HAS_REQ:
+            self.s = _requests.Session()
+            self.s.verify = False
+            self.s.headers.update({"User-Agent": UA, "Referer": SITE + "/"})
+        self.session = self.s
+        self.sess = self.s
+
+    # ─────────── 基础请求（challenge 自动绕过）───────────
+    def _fetch(self, url, referer=None, timeout=20):
+        """GET url，自动处理 18+ JS 挑战：提取 safeid -> 带 _safe cookie 重请求。返回 bytes。"""
+        hdrs = {"User-Agent": UA, "Accept": "*/*"}
+        if referer:
+            hdrs["Referer"] = referer
+        for _attempt in range(4):
+            if _HAS_REQ:
+                if self._safe:
+                    hdrs["Cookie"] = "_safe=" + self._safe
+                try:
+                    resp = self.s.get(url, headers=hdrs, timeout=timeout)
+                    body = resp.content
+                except Exception:
+                    body = b""
+            else:
+                try:
+                    req = urllib.request.Request(url, headers=hdrs)
+                    with urllib.request.urlopen(req, timeout=timeout) as r:
+                        body = r.read()
+                except Exception:
+                    body = b""
+            text = body.decode("utf-8", "ignore")
+            m = re.search(r"var\s+safeid\s*=\s*'([^']+)'", text)
+            is_challenge = bool(m) and ("lvb.rsso2.com" in text or len(text) < 8000)
+            if is_challenge:
+                self._safe = m.group(1)          # _safe 值就是 safeid 本身
+                continue                          # 带 cookie 重试
+            return body
+        return b""
+
+    def _get_text(self, url, referer=None):
+        return self._fetch(url, referer).decode("utf-8", "ignore")
+
+    # ─────────── 解析 ───────────
+    _CARD_RE = re.compile(
+        r'<a href="(https://bav53\.cc/video/(\d+)/[^"]*/)"\s+title="([^"]*)"(.*?)</a>', re.S)
+
+    def _parse_cards(self, html):
+        """解析视频卡片 -> [{vod_id(完整URL), vod_name, vod_pic, vod_remarks}]，去重保序"""
+        out, seen = [], set()
+        for m in self._CARD_RE.finditer(html):
+            url, vid, title, block = m.group(1), m.group(2), m.group(3), m.group(4)
+            if vid in seen:
                 continue
+            seen.add(vid)
+            pic = ""
+            pm = re.search(r'data-original="([^"]+)"', block)
+            if pm:
+                pic = pm.group(1)
+            remarks = ""
+            cm = re.search(r'class="item\s+([^"]+)"', block)
+            cls = (cm.group(1) if cm else "").strip()
+            if "premium" in cls:
+                remarks = "VIP"
+            elif "private" in cls:
+                remarks = "免费"
+            title = re.sub(r"\s+", " ", title).strip()
+            out.append({"vod_id": url, "vod_name": title,
+                        "vod_pic": pic, "vod_remarks": remarks})
+        return out
 
-    def _pic(self, url):
-        url = re.sub(r'https?://[^/]+/', 'https://bmc2.imgclh.com/', url)
-        return 'https://wsrv.nl/?url=%s&output=jpeg' % quote(url, safe='')
-
-    def _s(self, reset=False):
-        if reset or not hasattr(self, 'session'):
-            self.init()
-        return self.session
-
-    def _get(self, url, params=None, timeout=10):
-        last = None
-        for _ in range(3):
+    def _parse_page_count(self, html):
+        """从分页提取最大页码（"最后"链接），失败返回 1"""
+        m = re.search(r'class="last"[^>]*href="[^"]*?/(\d+)/"', html)
+        if m:
             try:
-                r = self._s().get(url, params=params, timeout=timeout)
-                if r.status_code == 200:
-                    return r
-                last = 'HTTP%d' % r.status_code
-            except Exception as e:
-                last = type(e).__name__
-        return None
+                return int(m.group(1))
+            except Exception:
+                pass
+        nums = re.findall(r'class="page"[^>]*href="[^"]*?/(\d+)/"', html)
+        if nums:
+            try:
+                return max(int(n) for n in nums)
+            except Exception:
+                pass
+        return 1
 
-    def _items(self, t):
-        rows = []
-        for u, name, pic in re.findall(r'href="(https://[^/"]+/video/\d+/[^"]+)"[^>]*title="([^"]*)"[\s\S]*?data-original="([^"]+)"[\s\S]*?</a>', t):
-            rows.append({'vod_id': u[len(self.HOST):], 'vod_name': name.strip(), 'vod_pic': self._pic(pic), 'vod_remarks': ''})
-        return rows
+    @staticmethod
+    def _vid_from(vid):
+        """从任意形态的 id/URL 提取纯数字视频 ID"""
+        m = re.search(r"video/(\d+)/", str(vid))
+        if not m:
+            m = re.search(r"(\d+)", str(vid))
+        return m.group(1) if m else ""
 
-    def _pagecount(self, t):
-        ms = re.findall(r'from:(\d+)', t)
-        if ms:
-            return max(int(x) for x in ms) // 20 + 1
-        m = re.search(r'最后\s*->\s*[^"]*?/(\d+)/', t)
-        return int(m.group(1)) if m else 1
+    # ─────────── 生命周期 ───────────
+    def getDependence(self):
+        return []
 
-    def homeContent(self, filter=False):
-        r = self._get(self.HOST + '/new/')
-        return {'class': CATEGORIES, 'list': self._items(r.text) if r else []}
+    def init(self, extend=""):
+        if not isinstance(extend, str):
+            extend = ""
+        self.extend = extend
+        self._http_init()
+
+    def destroy(self):
+        pass
+
+    # ─────────── 首页 ───────────
+    def homeContent(self, filter=None):
+        classes = self._get_classes()
+        return {"class": classes, "filters": {}, "list": self._home_videos()}
 
     def homeVideoContent(self):
-        r = self._get(self.HOST + '/new/')
-        return {'list': self._items(r.text) if r else []}
+        return {"list": self._home_videos()}
 
-    def categoryContent(self, tid, pg, filter=False, extend=None):
+    def _home_videos(self):
+        html = self._get_text(SITE + "/")
+        vlist = self._parse_cards(html)
+        if not vlist:
+            html = self._get_text(SITE + "/new/")
+            vlist = self._parse_cards(html)
+        return vlist[:40]
+
+    def _get_classes(self):
+        html = self._get_text(SITE + "/categories/")
+        classes, seen = [], set()
+        for m in re.finditer(
+                r'<a[^>]*href="https://bav53\.cc/categories/([^"/]+)/"[^>]*title="([^"]+)"', html):
+            slug, name = m.group(1), m.group(2).strip()
+            if slug in seen:
+                continue
+            seen.add(slug)
+            classes.append({"type_id": slug, "type_name": name})
+        if not classes:
+            classes = [{"type_id": "new", "type_name": "最新"},
+                       {"type_id": "amateur", "type_name": "Amateur"}]
+        return classes
+
+    # ─────────── 分类 ───────────
+    def categoryContent(self, tid, pg=1, filter=None, extend=None):
         try:
-            pg = int(pg or 1)
-            if tid == 'new':
-                url = self.HOST + '/new/' if pg == 1 else self.HOST + '/new/%d/' % pg
-            else:
-                url = self.HOST + '/tags/%s/' % tid if pg == 1 else self.HOST + '/tags/%s/%d/' % (tid, pg)
-            r = self._get(url)
-            if r is None:
-                r = self._get(url.replace(self.HOST, next(h for h in HOSTS if h != self.HOST)))
-                if r is None:
-                    return {'list': [], 'page': pg, 'pagecount': pg}
-                self.HOST = next(h for h in HOSTS if h != self.HOST)
-            t = r.text
+            page = int(pg) if str(pg).isdigit() else 1
         except Exception:
-            return {'list': [], 'page': pg, 'pagecount': 0}
-        return {'list': self._items(t), 'page': pg, 'pagecount': self._pagecount(t)}
+            page = 1
+        tid = str(tid)
+        if tid.startswith("http"):
+            m = re.search(r"categories/([^/]+)/", tid)
+            tid = m.group(1) if m else tid
+        base = SITE + "/categories/" + tid
+        url = base + "/" if page <= 1 else "%s/%d/" % (base, page)
+        html = self._get_text(url)
+        vlist = self._parse_cards(html)
+        pagecount = self._parse_page_count(html)
+        return {"list": vlist, "page": page, "pagecount": pagecount,
+                "limit": 24, "total": len(vlist) * pagecount}
 
+    # ─────────── 详情 ───────────
     def detailContent(self, ids):
-        self._s()
-        u = ids[0]
-        if not u.startswith('http'):
-            u = self.HOST + u
-        r = self._get(u)
-        if r is None:
-            for h in HOSTS:
-                if h == self.HOST:
-                    continue
-                r = self._get(u.replace(self.HOST, h))
-                if r:
-                    self.HOST = h
-                    break
-            if r is None:
-                return {'list': []}
-        t = r.text
-        title = re.search(r'<h1[^>]*>([\s\S]*?)</h1>', t)
-        desc = re.search(r'id="description"[^>]*>([\s\S]*?)</', t)
-        dur = re.search(r'video:duration"\s+content="(\d+)"', t)
-        pj = re.search(r'Playerjs\s*\(\s*\{([\s\S]*?)\}\s*\)', t)
-        file = None
-        poster = None
-        if pj:
-            m = re.search(r'file\s*:\s*["\']([^"\']+)', pj.group(1))
-            if m:
-                file = m.group(1)
-            m = re.search(r'poster\s*:\s*["\']([^"\']+)', pj.group(1))
-            if m:
-                poster = m.group(1)
-        if not poster:
-            m = re.search(r'property="og:image"[^>]*content="([^"]+)"', t)
-            if m:
-                poster = m.group(1)
-        if not file:
-            m = re.search(r'/video/(\d+)/', u)
-            if m:
-                vid = int(m.group(1))
-                file = 'https://r22.jb-aiwei.cc/videos/%d/%d/%dvideo_limt.mp4' % (vid // 1000 * 1000, vid, vid)
-        sf = None
-        if pj:
-            m = re.search(r'file\s*:\s*["\']([^"\']+)', pj.group(1))
-            if m:
-                sf = m.group(1)
-        lines = [file]
-        names = ['直链']
-        if sf and sf != file:
-            lines.append(sf)
-            names.append('网页')
-        remark = '试看'
-        if dur:
-            remark = 'HD · %d分钟 试看' % (int(dur.group(1)) // 60)
+        if isinstance(ids, (list, tuple)):
+            raw = str(ids[0])
+        else:
+            raw = str(ids)
+        # ids 可能是完整 URL（含 slug）或纯数字
+        m = re.search(r"(https://bav53\.cc/video/\d+/[^/]*/)", raw)
+        if m:
+            url = m.group(1)
+        else:
+            vid = self._vid_from(raw)
+            if not vid:
+                return {"list": []}
+            url = "%s/video/%s/" % (SITE, vid)
+        html = self._get_text(url)
         vod = {
-            'vod_id': u,
-            'vod_name': title.group(1).strip() if title else '',
-            'vod_pic': self._pic(poster) if poster else '',
-            'vod_content': desc.group(1).strip() if desc else '',
-            'vod_remarks': remark,
-            'vod_play_from': '$$$'.join(names),
-            'vod_play_url': '$$$'.join('播放$%s' % x for x in lines),
+            "vod_id": url,
+            "vod_name": "",
+            "vod_pic": "",
+            "vod_content": "",
+            "vod_year": "",
+            "vod_remarks": "",
+            "vod_play_from": "爱微",
+            # 播放地址用详情页 URL：playerContent 实时解析（m3u8 token 有时效，不能缓存）
+            "vod_play_url": "爱微社区$" + url,
         }
-        return {'list': [vod]}
+        hm = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.S)
+        if hm:
+            vod["vod_name"] = re.sub(r"<[^>]+>|\s+", " ", hm.group(1)).strip()
+        om = re.search(r'<meta property="og:image" content="([^"]+)"', html)
+        if om:
+            vod["vod_pic"] = om.group(1)
+        dm = re.search(r'<meta property="og:description" content="([^"]*)"', html)
+        if dm:
+            vod["vod_content"] = dm.group(1).strip()
+        ym = re.search(r'<meta property="og:video:release_date" content="([^"]+)"', html)
+        if ym:
+            vod["vod_year"] = ym.group(1)[:4]
+        # 校验页面是否真的是请求的视频（无 slug 时服务端可能回退到随机视频）
+        if "video/" in url:
+            req_id = self._vid_from(url)
+            ogm = re.search(r'<meta property="og:url" content="[^"]*video/(\d+)/', html)
+            if ogm and ogm.group(1) != req_id:
+                # 回退页：尝试用搜索找真实 slug
+                alt = self._find_real_url(req_id)
+                if alt:
+                    return self.detailContent([alt])
+                return {"list": []}
+        if not vod["vod_name"]:
+            vod["vod_name"] = "视频%s" % self._vid_from(url)
+        return {"list": [vod]}
 
-    def searchContent(self, key, quick=False):
-        r = self._get(self.HOST + '/search/', params={'q': key})
-        return {'list': self._items(r.text) if r else []}
+    def _find_real_url(self, vid):
+        """用搜索找数字 ID 对应的真实详情页 URL（含 slug）"""
+        html = self._get_text("%s/search/%s/videos/" % (SITE, vid))
+        for m in self._CARD_RE.finditer(html):
+            u = m.group(1)
+            if "/video/%s/" % vid in u:
+                return u
+        return ""
 
-    def playerContent(self, flag, pid, vipFlags=None):
-        return {'parse': 0, 'url': pid, 'header': {'User-Agent': UA, 'Referer': self.HOST + '/', 'Origin': self.HOST}}
+    # ─────────── 搜索 ───────────
+    def searchContent(self, key, quick=False, pg="1"):
+        try:
+            page = int(pg) if str(pg).isdigit() else 1
+        except Exception:
+            page = 1
+        kw = urlparse.quote(str(key))
+        base = "%s/search/%s/videos" % (SITE, kw)
+        url = base + "/" if page <= 1 else "%s/%d/" % (base, page)
+        html = self._get_text(url)
+        vlist = self._parse_cards(html)
+        return {"list": vlist}
 
+    # ─────────── 播放（实时解析，token 保鲜）───────────
+    def _get_play_lines(self, detail_url):
+        """抓详情页 CSRF -> spped.php -> 多线路 m3u8。返回 [(key,name,url)]"""
+        html = self._get_text(detail_url)
+        cm = re.search(r'var PLAYER_CSRF = "([^"]+)"', html)
+        if not cm:
+            return []
+        csrf = cm.group(1)
+        api = "%s/player/spped.php?csrf=%s" % (SITE, csrf)
+        body = self._fetch(api, referer=detail_url)
+        try:
+            data = json.loads(body.decode("utf-8", "ignore"))
+        except Exception:
+            return []
+        lines = []
+        for src in data.get("sources", []) or []:
+            u = src.get("url", "")
+            if u:
+                lines.append((src.get("key", ""), src.get("name", ""), u))
+        return lines
+
+    def playerContent(self, flag, ids, vipFlags=None):
+        raw = str(ids)
+        m = re.search(r"(https://bav53\.cc/video/\d+/[^/]*/)", raw)
+        if m:
+            detail_url = m.group(1)
+        else:
+            vid = self._vid_from(raw)
+            detail_url = "%s/video/%s/" % (SITE, vid) if vid else raw
+        lines = self._get_play_lines(detail_url)
+        if not lines:
+            # VIP 视频未登录：详情页无播放器 -> 降级到 newembed 的 30s 预览 mp4
+            vid = self._vid_from(detail_url)
+            prev = self._get_preview_url(vid)
+            if prev:
+                return {"parse": 0, "url": prev,
+                        "header": {"User-Agent": UA, "Referer": SITE + "/"},
+                        "format": "video/mp4"}
+            return {"parse": 0, "url": raw,
+                    "header": {"User-Agent": UA, "Referer": SITE + "/"}}
+        target = str(flag)
+        picked = None
+        for key, name, u in lines:
+            if target and (target == key or target == name):
+                picked = (key, name, u)
+                break
+        if not picked:
+            picked = lines[0]
+        _key, _name, m3u8 = picked
+        return {
+            "parse": 0,
+            "url": m3u8,
+            "header": {"User-Agent": UA, "Referer": SITE + "/"},
+            "format": "application/x-mpegURL",
+        }
+
+    def _get_preview_url(self, vid):
+        """newembed 页的预览 mp4（VIP 视频未登录只有这个，约 30s）"""
+        if not vid:
+            return ""
+        html = self._get_text("%s/newembed/%s" % (SITE, vid))
+        m = re.search(r'<source\s+src="([^"]+)"', html)
+        return m.group(1) if m else ""
+
+    # ─────────── 本地代理（兜底）───────────
     def localProxy(self, param):
-        url = param.get('url') if isinstance(param, dict) else None
+        if isinstance(param, str):
+            try:
+                param = json.loads(param)
+            except Exception:
+                param = {}
+        url = (param or {}).get("url", "")
         if not url:
-            return None
-        r = self._s().get(url, headers={'Referer': self.HOST + '/'}, stream=True, timeout=15)
-        for chunk in r.iter_content(65536):
-            if chunk:
-                yield chunk
+            return [404, "text/plain", b"", {}]
+        body = self._fetch(url)
+        mime = "image/jpeg"
+        if body[:4] == b"\x47\x40\x11\x10":
+            mime = "video/mp2t"
+        return [200, mime, body, {"User-Agent": UA}]
+
+    # ─────────── WebView 嗅探 ───────────
+    def manualVideoCheck(self):
+        return False
+
+    def isVideoFormat(self, url):
+        u = str(url).lower()
+        return any(u.endswith(ext) for ext in (".m3u8", ".mp4", ".flv", ".ts", ".mkv", ".m4s"))
+
+    def action(self, action):
+        return json.dumps({"code": 0, "msg": "ok"}, ensure_ascii=False)
+
+    def getName(self):
+        return self.name
+
+
+# ─────────── 本地自测（模拟壳调用链）───────────
+if __name__ == "__main__":
+    sp = Spider()
+    sp.init("")
+    print("== homeContent ==")
+    hc = sp.homeContent(True)
+    print("classes:", len(hc.get("class", [])), "| list:", len(hc.get("list", [])))
+    for c in hc.get("class", [])[:5]:
+        print("  ", c)
+    if hc.get("list"):
+        print("  sample:", hc["list"][0])
+    print("== homeVideoContent ==")
+    print("list:", len(sp.homeVideoContent().get("list", [])))
+    print("== categoryContent ==")
+    cc = sp.categoryContent("solowork", "1", False, {})
+    print("list:", len(cc.get("list", [])), "| pagecount:", cc.get("pagecount"))
+    if cc.get("list"):
+        print("  sample:", cc["list"][0])
+    print("== detailContent ==")
+    dc = sp.detailContent([hc["list"][0]["vod_id"]]) if hc.get("list") else sp.detailContent(["129377"])
+    vod = dc["list"][0]
+    print("  name:", vod["vod_name"][:50])
+    print("  pic:", vod["vod_pic"][:80])
+    print("  play:", vod["vod_play_from"], "|", vod["vod_play_url"][:70])
+    print("== playerContent ==")
+    pc = sp.playerContent("爱微", vod["vod_play_url"].split("$")[1])
+    print("  url:", pc["url"][:110])
+    print("  format:", pc.get("format"))
+    print("  header keys:", list(pc.get("header", {}).keys()))
+    print("== searchContent ==")
+    sc = sp.searchContent("fc2", False, "1")
+    print("list:", len(sc.get("list", [])))
