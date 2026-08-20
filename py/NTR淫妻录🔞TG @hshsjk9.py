@@ -33,8 +33,6 @@ class Spider(Spider):
 
     def init(self, extend=""):
         self.session.verify = False
-        # 仅允许 extend 覆盖 host，不再自动从 maccms 读取 url 覆盖
-        # （避免 maccms.url 配置的是旧域名/被封域名，导致后续请求全部失败）
         if extend and isinstance(extend, str) and extend.startswith('http'):
             self.host = extend.rstrip('/')
             self.headers['Referer'] = self.host + '/'
@@ -42,7 +40,11 @@ class Spider(Spider):
     def _fetch(self, url):
         try:
             r = self.session.get(url, headers=self.headers, timeout=20, verify=False)
-            r.encoding = 'utf-8'
+            # ========== 修复1：自动检测编码，避免强制utf-8导致中文乱码 ==========
+            if r.encoding and r.encoding.lower() not in ['iso-8859-1', 'binary']:
+                r.encoding = r.encoding
+            else:
+                r.encoding = r.apparent_encoding or 'utf-8'
             return r.text if r.status_code == 200 else ''
         except Exception:
             return ''
@@ -151,8 +153,9 @@ class Spider(Spider):
                 if m_title:
                     title = m_title.group(1).strip()
 
+            # ========== 修复2：增加 data-original 等懒加载属性，解决无封面 ==========
             pic = ''
-            m_pic = re.search(r'<img[^>]*(?:data-src|src)="([^"]+)"', block, re.S)
+            m_pic = re.search(r'<img[^>]*(?:data-original|data-src|src)="([^"]+)"', block, re.S)
             if m_pic:
                 pic = self._abs_url(m_pic.group(1))
 
@@ -160,6 +163,9 @@ class Spider(Spider):
             m_note = re.search(r'<span[^>]*class="[^"]*video-grade[^"]*"[^>]*>(.*?)</span>', block, re.S)
             if m_note:
                 note = re.sub(r'<[^>]+>', '', m_note.group(1)).strip()
+
+            # ========== 修复3：标题统一做 HTML 实体解码，解决乱码 ==========
+            title = self._decode_html_entities(title)
 
             items.append({
                 'vod_id': vid,
@@ -171,7 +177,7 @@ class Spider(Spider):
         if not items:
             pattern = re.compile(
                 r'<a[^>]+href="/voddetail/(\d+)\.html"[^>]*>.*?'
-                r'<img[^>]*?(?:data-src|src)="([^"]+)"[^>]*>.*?'
+                r'<img[^>]*?(?:data-original|data-src|src)="([^"]+)"[^>]*>.*?'
                 r'(?:<span[^>]*class="[^"]*title[^"]*"[^>]*>(.*?)</span>)?',
                 re.S
             )
@@ -182,6 +188,7 @@ class Spider(Spider):
                     continue
                 seen.add(vid)
                 title = re.sub(r'<[^>]+>', '', title_raw or '').strip()
+                title = self._decode_html_entities(title)
                 items.append({
                     'vod_id': vid,
                     'vod_name': title,
@@ -213,11 +220,14 @@ class Spider(Spider):
             if m:
                 title = m.group(1).split('-')[0].strip()
 
+        # 标题实体解码
+        title = self._decode_html_entities(title)
+
         cover = ''
         for pat in [
-            r'<div[^>]*class="[^"]*video-wrapper[^"]*"[^>]*>.*?<img[^>]+(?:src|data-src)="([^"]+)"',
+            r'<div[^>]*class="[^"]*video-wrapper[^"]*"[^>]*>.*?<img[^>]+(?:src|data-src|data-original)="([^"]+)"',
             r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"',
-            r'<img[^>]+class="[^"]*video-img[^"]*"[^>]+(?:src|data-src)="([^"]+)"',
+            r'<img[^>]+class="[^"]*video-img[^"]*"[^>]+(?:src|data-src|data-original)="([^"]+)"',
         ]:
             m = re.search(pat, text, re.S)
             if m:
@@ -267,7 +277,6 @@ class Spider(Spider):
             play_url_list.append(f'播放$/vodplay/{vid}-1-1.html')
             play_from_list.append('NTR淫妻录')
 
-        # ==================== 简介提取（多重策略 + 智能生成兜底）====================
         content = ''
 
         m = re.search(r'<meta[^>]+name=(["\'])description\1[^>]+content=\1([^\1]*)\1', text, re.S | re.I)
@@ -332,13 +341,12 @@ class Spider(Spider):
         }
         return {'list': [vod]}
 
-    # ==================== HTML 文本清理工具 ====================
-
     def _clean_html_text(self, raw):
         if not raw:
             return ''
-        text = re.sub(r'<[^>]+>', '', raw)
-        text = re.sub(r'<(script|style)[^>]*>.*?</\1>', '', text, flags=re.S | re.I)
+        # 先移除 script/style，再移除其他标签
+        text = re.sub(r'<(script|style)[^>]*>.*?</\1>', '', raw, flags=re.S | re.I)
+        text = re.sub(r'<[^>]+>', '', text)
         text = ' '.join(text.split())
         return text.strip()
 
@@ -430,12 +438,9 @@ class Spider(Spider):
 
         return base.strip()
 
-    # ==================== 苹果CMS v10 URL 解密 ====================
-
     def _decode_mac_url(self, encoded, encrypt):
         if not encoded:
             return ''
-        # 统一处理字符串/整数类型的 encrypt
         try:
             encrypt = int(encrypt)
         except (ValueError, TypeError):
@@ -444,7 +449,6 @@ class Spider(Spider):
         if encrypt == 0:
             return encoded
 
-        # 先 URL 解码（处理传输中的 % 编码）
         if '%' in encoded:
             try:
                 encoded = unquote(encoded)
@@ -458,25 +462,20 @@ class Spider(Spider):
                 return encoded
 
         if encrypt == 2:
-            # 苹果CMS v10 默认：编码时 = strrev(base64_encode(url))
-            # 解码时：先反转字符串，再 base64_decode
             try:
                 return base64.b64decode(encoded[::-1]).decode('utf-8')
             except Exception:
                 pass
-            # 备选：先 base64 再反转（部分修改版 CMS）
             try:
                 return base64.b64decode(encoded).decode('utf-8')[::-1]
             except Exception:
                 pass
-            # 再备选：直接 base64（某些魔改版）
             try:
                 return base64.b64decode(encoded).decode('utf-8')
             except Exception:
                 pass
             return encoded
 
-        # encrypt >= 3 或未知：尝试多种通用解密
         try:
             decoded = base64.b64decode(encoded).decode('utf-8')
             if decoded.startswith('http'):
@@ -501,8 +500,6 @@ class Spider(Spider):
                 continue
         return encoded
 
-    # ==================== 播放解析 ====================
-
     def playerContent(self, flag, id, vipFlags=None):
         if id.startswith('http'):
             return {
@@ -517,9 +514,7 @@ class Spider(Spider):
         m3u8 = ''
 
         if text:
-            # ===== ① player_aaaa / player / mac_player / player_data JSON =====
             for var_name in ['player_aaaa', 'player', 'mac_player', 'player_data']:
-                # 宽松匹配：不严格要求 </script> 紧跟，允许中间有其他代码
                 m = re.search(rf'var\s+{var_name}\s*=\s*(\{{.*?\}})', text, re.S)
                 if m:
                     try:
@@ -534,7 +529,6 @@ class Spider(Spider):
                     except Exception:
                         continue
 
-            # ② var now = "xxx.m3u8"
             if not m3u8:
                 m = re.search(r"var\s+now\s*=\s*['\"]([^'\"]+)['\"]", text)
                 if m:
@@ -547,20 +541,17 @@ class Spider(Spider):
                     if decoded.startswith('http'):
                         m3u8 = decoded
 
-            # ③ iframe 嵌入
             if not m3u8:
                 m = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', text, re.S)
                 if m:
                     iframe_src = m.group(1)
                     m3u8 = self._abs_url(iframe_src)
 
-            # ④ 直接匹配页面中的 m3u8/mp4/ts
             if not m3u8:
                 m = re.search(r"['\"](https?://[^\s'\"<>]+?\.(?:m3u8|mp4|ts|flv))['\"]", text)
                 if m:
                     m3u8 = m.group(1)
 
-            # ⑤ eval / unescape 解密
             if not m3u8:
                 m = re.search(r"unescape\(['\"]([^'\"]+)['\"]\)", text)
                 if m:
@@ -571,25 +562,20 @@ class Spider(Spider):
                     except Exception:
                         pass
 
-            # ⑥ MacPlayerConfig 解析器配置
             if not m3u8:
                 m = re.search(r'MacPlayerConfig\.player_list\s*=\s*({.*?})', text, re.S)
                 if m:
                     try:
                         cfg = json.loads(m.group(1))
-                        # 若配置中有直链标识，尝试进一步处理
                         for k, v in cfg.items():
                             if isinstance(v, dict) and v.get('ps') == '0':
-                                # ps==0 表示直链，但需配合 from 字段使用
                                 pass
                     except Exception:
                         pass
 
-            # 兜底：把播放页本身交回给 APP 二次解析
             if not m3u8:
                 m3u8 = url
 
-        # 若拿到真实媒体地址，走代理清洗
         if m3u8 and m3u8 != url and ('.m3u8' in m3u8 or '.mp4' in m3u8 or '.ts' in m3u8):
             m3u8 = self._sanitize_m3u8_url(m3u8)
             proxy_url = self._proxy_m3u8_url(m3u8, url)
@@ -612,8 +598,6 @@ class Spider(Spider):
             'header': {'Referer': self.host + '/', 'User-Agent': self.headers['User-Agent']},
             'position': '0'
         }
-
-    # ==================== m3u8 广告拦截清洗代理 ====================
 
     def _sanitize_m3u8_url(self, url):
         if not url:
