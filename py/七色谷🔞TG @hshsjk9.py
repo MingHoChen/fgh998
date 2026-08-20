@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 qisegu Spider —— 七色谷修复版（图区/小说/视频全兼容）
-修复：列表图片优先提取 data-original，增加 URL 补全，防止抓错 loading 图
 """
 
 import sys
@@ -10,6 +9,7 @@ import json
 import requests
 import urllib3
 import base64
+import html
 from urllib.parse import quote, unquote
 
 urllib3.disable_warnings()
@@ -39,7 +39,11 @@ class Spider(Spider):
     def _fetch(self, url):
         try:
             r = self.session.get(url, headers=self.headers, timeout=20, verify=False)
-            r.encoding = 'utf-8'
+            # 自动检测编码，避免强制 utf-8 导致某些页面乱码
+            if r.encoding == 'ISO-8859-1':
+                r.encoding = r.apparent_encoding
+            if not r.encoding:
+                r.encoding = 'utf-8'
             return r.text if r.status_code == 200 else ''
         except Exception:
             return ''
@@ -181,7 +185,7 @@ class Spider(Spider):
                 vid, title = m.groups()
                 items.append({
                     'vod_id': f'art_{vid}',
-                    'vod_name': title.strip(),
+                    'vod_name': html.unescape(title.strip()),
                     'vod_pic': '',
                     'vod_remarks': '',
                 })
@@ -223,7 +227,7 @@ class Spider(Spider):
 
                 items.append({
                     'vod_id': f'art_{vid}' if is_article else vid,
-                    'vod_name': title.strip(),
+                    'vod_name': html.unescape(title.strip()),
                     'vod_pic': pic,
                     'vod_remarks': note,
                 })
@@ -244,7 +248,7 @@ class Spider(Spider):
                     pic = ''
                 items.append({
                     'vod_id': f'art_{vid}' if is_article else vid,
-                    'vod_name': title.strip(),
+                    'vod_name': html.unescape(title.strip()),
                     'vod_pic': pic,
                     'vod_remarks': '',
                 })
@@ -267,13 +271,13 @@ class Spider(Spider):
                         r'<h[1-6][^>]*>\s*<a[^>]+href="/' + detail_prefix + r'/' + vid + r'\.html"[^>]*>([^<]+)</a>',
                         text, re.S
                     )
-                    title = t.group(1).strip() if t else f'未知标题{vid}'
+                    title = html.unescape(t.group(1).strip()) if t else f'未知标题{vid}'
                 pic = self._fix_pic(pic.strip() if pic else '')
                 if self._is_bad_pic(pic):
                     pic = ''
                 items.append({
                     'vod_id': f'art_{vid}' if is_article else vid,
-                    'vod_name': title.strip(),
+                    'vod_name': html.unescape(title.strip()),
                     'vod_pic': pic,
                     'vod_remarks': '',
                 })
@@ -290,7 +294,7 @@ class Spider(Spider):
                     seen.add(vid)
                     items.append({
                         'vod_id': f'art_{vid}',
-                        'vod_name': title.strip(),
+                        'vod_name': html.unescape(title.strip()),
                         'vod_pic': '',
                         'vod_remarks': '',
                     })
@@ -334,11 +338,11 @@ class Spider(Spider):
         title = ''
         m = re.search(r'<h1[^>]*>(.*?)</h1>', text, re.S)
         if m:
-            title = re.sub(r'<[^>]+>', '', m.group(1)).strip()
+            title = html.unescape(re.sub(r'<[^>]+>', '', m.group(1)).strip())
         if not title:
             m = re.search(r'<title>([^<]+)</title>', text)
             if m:
-                title = m.group(1).replace('- 七色谷', '').replace('- qisegu', '').strip()
+                title = html.unescape(m.group(1).replace('- 七色谷', '').replace('- qisegu', '').strip())
 
         cover = ''
         for pat in [
@@ -407,7 +411,7 @@ class Spider(Spider):
         for pat in [r'<h1[^>]*>(.*?)</h1>', r'<h2[^>]*>(.*?)</h2>', r'<title>([^<]+)</title>']:
             m = re.search(pat, text, re.S)
             if m:
-                title = re.sub(r'<[^>]+>', '', m.group(1)).strip()
+                title = html.unescape(re.sub(r'<[^>]+>', '', m.group(1)).strip())
                 if title:
                     break
         if not title:
