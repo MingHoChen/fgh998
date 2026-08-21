@@ -347,14 +347,35 @@ class Spider(BaseSpider):
         return {"list": [vod]}
 
     def searchContent(self, key, quick, pg=1):
+        pg = int(pg)
         if pg == 1:
             url = f"{self.host}/label/search/?wd={quote(key)}"
         else:
             url = f"{self.host}/label/search/?wd={quote(key)}&page={pg}"
         res = self.fetch(url, headers={'Referer': self.host})
         if not res:
-            return {"list": []}
-        result = {"list": self._parse_list_html(res.text)}
+            return {"list": [], "page": pg, "pagecount": 1, "limit": 24, "total": 0}
+        result = {
+            "list": self._parse_list_html(res.text),
+            "page": pg,
+            "pagecount": 999,
+            "limit": 24,
+            "total": 9999
+        }
+        # 检测搜索是否有下一页
+        html = res.text
+        has_next = False
+        if re.search(rf'page/{pg + 1}/', html, re.I | re.S):
+            has_next = True
+        if not has_next and re.search(
+            r'<a[^>]*href=["'][^"']*["'][^>]*>[^<]*(?:下一页|&raquo;|›|»|Next)[^<]*</a>',
+            html, re.I | re.S
+        ):
+            has_next = True
+        if not has_next and len(result['list']) >= 24:
+            has_next = True
+        if not has_next:
+            result['pagecount'] = pg
         result['header'] = self._make_header()
         return result
 
