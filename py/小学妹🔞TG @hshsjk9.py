@@ -52,8 +52,6 @@ class Spider(BaseSpider):
         return result
 
     def homeContent(self, filter):
-        # 仅保留确认有视频数据的分类
-        # 已删除无数据分类: 119天美 120果冻 123精东 137星空 14791传媒 448网红 37韩国主播
         classes = [
             {"type_name": "国产", "type_id": "20"},
             {"type_name": "日本有码", "type_id": "21"},
@@ -77,10 +75,11 @@ class Spider(BaseSpider):
     def categoryContent(self, tid, pg, filter, extend):
         pg = int(pg)
         result = {"list": [], "page": pg, "pagecount": 999, "limit": 24, "total": 9999}
+        # 修复：分页URL格式改为 /t/{tid}-{pg}/
         if pg == 1:
             url = f"{self.host}/t/{tid}/"
         else:
-            url = f"{self.host}/t/{tid}/page/{pg}/"
+            url = f"{self.host}/t/{tid}-{pg}/"
         print(f"[categoryContent] 请求: {url}")
         res = self.fetch(url, headers={'Referer': self.host})
         if not res:
@@ -90,12 +89,20 @@ class Spider(BaseSpider):
         result['list'] = self._parse_list_html(html)
         result['header'] = self._make_header()
 
-        has_next = re.search(rf'href=["\'][^"\']*/t/{tid}/page/{pg + 1}/["\']', html, re.I | re.S)
-        if not has_next:
-            has_next = re.search(
-                r'<a[^>]*href=["\'][^"\']*/t/\d+/page/\d+/["\'][^>]*>[^<]*(?:下一页|&raquo;|›|»)[^<]*</a>',
-                html, re.I | re.S
-            )
+        # 修复：适配新的分页格式检测下一页
+        has_next = False
+        if re.search(rf'href=["\'][^"\']*/t/{tid}-{pg + 1}/["\']', html, re.I | re.S):
+            has_next = True
+        if not has_next and re.search(rf'/t/{tid}-{pg + 1}/', html, re.I | re.S):
+            has_next = True
+        if not has_next and re.search(
+            r'<a[^>]*href=["\'][^"\']*["\'][^>]*>[^<]*(?:下一页|&raquo;|›|»|Next)[^<]*</a>',
+            html, re.I | re.S
+        ):
+            has_next = True
+        if not has_next and len(result['list']) >= 24:
+            has_next = True
+
         if not has_next:
             if result['list']:
                 result['pagecount'] = pg
@@ -109,30 +116,23 @@ class Spider(BaseSpider):
 
     def _parse_list_html(self, html):
         """
-        三级解析策略：
-        1. 优先匹配 videoListBox + videoListStyle
-        2. 备选匹配 list_box + ul/li
-        3. 暴力兜底：全页匹配 /voddetail/\d+/
+        修复：策略1直接全页匹配 videoListStyle，无需先提取 videoListBox
+        （原正则 (.*?)</div> 会在第一个 </div> 结束，导致 box 提取不完整）
         """
         vod_list = []
 
-        # 策略1：videoListBox + videoListStyle
-        box_match = re.search(
-            r'<div[^>]*class=["\'][^"\']*videoListBox[^"\']*["\'][^>]*>(.*?)</div>\s*(?:<div[^>]*class=["\'][^"\']*(?:pages|publicContetHeaderBox)[^"\']*["\']|$)',
+        # 策略1：直接匹配 videoListStyle（修复版）
+        items = re.findall(
+            r'<a[^>]*href=["\'](/voddetail/(\d+)/)["\'][^>]*class=["\'][^"\']*videoListStyle[^"\']*["\'][^>]*>(.*?)</a>',
             html, re.DOTALL | re.I
         )
-        if box_match:
-            items = re.findall(
-                r'<a[^>]*href=["\'](/voddetail/(\d+)/)["\'][^>]*class=["\'][^"\']*videoListStyle[^"\']*["\'][^>]*>(.*?)</a>',
-                box_match.group(1), re.DOTALL | re.I
-            )
-            print(f"[_parse_list_html] 策略1匹配到 {len(items)} 个")
-            for vid_path, vid, content in items:
-                vod = self._extract_vod_from_item(vid_path, content)
-                if vod:
-                    vod_list.append(vod)
+        print(f"[_parse_list_html] 策略1匹配到 {len(items)} 个")
+        for vid_path, vid, content in items:
+            vod = self._extract_vod_from_item(vid_path, content)
+            if vod:
+                vod_list.append(vod)
 
-        # 策略2：list_box + ul/li
+        # 策略2：list_box + ul/li（兼容旧模板）
         if not vod_list:
             list_box = re.search(
                 r'<div[^>]*class=["\']list_box["\'][^>]*>(.*?)</div>\s*<div[^>]*class=["\']pages',
@@ -355,6 +355,7 @@ class Spider(BaseSpider):
         res = self.fetch(url, headers={'Referer': self.host})
         if not res:
             return {"list": [], "page": pg, "pagecount": 1, "limit": 24, "total": 0}
+        # 修复：补充翻页必需字段
         result = {
             "list": self._parse_list_html(res.text),
             "page": pg,
@@ -362,13 +363,12 @@ class Spider(BaseSpider):
             "limit": 24,
             "total": 9999
         }
-        # 检测搜索是否有下一页
         html = res.text
         has_next = False
-        if re.search(rf'page/{pg + 1}/', html, re.I | re.S):
+        if re.search(rf'page={pg + 1}(?:&|["\'])', html, re.I | re.S):
             has_next = True
         if not has_next and re.search(
-            r'<a[^>]*href=["'][^"']*["'][^>]*>[^<]*(?:下一页|&raquo;|›|»|Next)[^<]*</a>',
+            r'<a[^>]*href=["\'][^"\']*["\'][^>]*>[^<]*(?:下一页|&raquo;|›|»|Next)[^<]*</a>',
             html, re.I | re.S
         ):
             has_next = True
