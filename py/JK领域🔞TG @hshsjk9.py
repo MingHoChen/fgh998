@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""JK领域 jksolsotoday.buzz 四壳通用 Spider。
-
-站点为 MacCMS/Txmojia 模板：列表与详情基本明文；播放页 player_data 明文；
-HLS 为标准 AES-128，部分清单含多次 EXT-X-KEY/断点切换，交给原生播放器处理。
+"""JK领域 https://8n78s7s7.jksolsotoday.buzz
 """
 import json
 import re
@@ -82,7 +79,7 @@ def _page_url(tid, page):
 
 class Spider:
     name = "JK领域"
-    version = "1.0.0"
+    version = "1.1.0"
     def __init__(self):
         self.http = _Http(); self.s = self.http.session; self.session = self.s; self.sess = self.s
         self.extend = ""; self._cache = {}; self._last = 0
@@ -131,9 +128,35 @@ class Spider:
             # 站点存在明显未成年人指向词，默认过滤；不做绕过或收集。
             if not allow_unsafe and any(x in title for x in UNSAFE_TERMS): continue
             seen.add(vid)
+
+            # ==================== 封面获取（修复无封面问题） ====================
             pic = ""
+            # 1) 优先懒加载真实图：data-original / data-src
             pm = re.search(r'(?:data-original|data-src)=["\']([^"\']+)', block, re.I)
-            if pm: pic = _abs(pm.group(1))
+            if pm:
+                pic = _abs(pm.group(1))
+
+            # 2) 回退到标准 <img src="...">，优先匹配图片扩展名
+            if not pic:
+                pm = re.search(r'<img[^>]+src=["\']([^"\']+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"\']*)?)["\']', block, re.I)
+                if pm:
+                    pic = _abs(pm.group(1))
+
+            # 3) 更宽松的 src / background-image
+            if not pic:
+                pm = re.search(r'src=["\']([^"\']+)', block, re.I)
+                if pm:
+                    url = pm.group(1).strip()
+                    # 过滤脚本、样式、图标、data URI
+                    if not url.endswith(('.js', '.css', '.svg', '.ico')) and not url.startswith('data:'):
+                        pic = _abs(url)
+
+            if not pic:
+                pm = re.search(r'background-image\s*:\s*url\(["\']?(.*?)["\']?\)', block, re.I)
+                if pm:
+                    pic = _abs(pm.group(1))
+            # ==================== 封面获取结束 ====================
+
             date = ""
             dm = re.search(r'class=["\'][^"\']*time[^"\']*["\'][^>]*>(.*?)</span>', block, re.I | re.S)
             if dm: date = _clean(dm.group(1))
@@ -179,10 +202,26 @@ class Spider:
         if not title:
             tm = re.search(r'<title>(.*?)</title>', html, re.I | re.S); title = _clean(tm.group(1)) if tm else ""
             title = re.split(r'详情介绍|在线观看|迅雷下载', title)[0].strip(" -")
-        # 详情页优先取视频卡片/详情图，跳过 jquery.js 等脚本 src。
+
+        # ==================== 详情封面获取（同步增强） ====================
+        # 1) 懒加载
         pm = re.search(r'(?:data-original|data-src)=["\']([^"\']+)', html, re.I)
-        if not pm: pm = re.search(r'<img[^>]+src=["\']([^"\']+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"\']*)?)["\']', html, re.I)
-        if pm: pic = _abs(pm.group(1))
+        if pm:
+            pic = _abs(pm.group(1))
+        # 2) 标准 img src（优先图片格式）
+        if not pic:
+            pm = re.search(r'<img[^>]+src=["\']([^"\']+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"\']*)?)["\']', html, re.I)
+            if pm:
+                pic = _abs(pm.group(1))
+        # 3) 更宽松回退
+        if not pic:
+            pm = re.search(r'<img[^>]+src=["\']([^"\']+)', html, re.I)
+            if pm:
+                url = pm.group(1).strip()
+                if not url.endswith(('.js', '.css', '.svg', '.ico')) and not url.startswith('data:'):
+                    pic = _abs(url)
+        # ==================== 详情封面结束 ====================
+
         dm = re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']', html, re.I | re.S)
         if dm: content = _clean(dm.group(1))
         vod = {"vod_id": url, "vod_name": title, "vod_pic": pic, "type_name": "",
