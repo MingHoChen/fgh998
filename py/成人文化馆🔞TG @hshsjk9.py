@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 成人文化馆 Spider（TVBox/影视仓通用）
 # 站点：https://xn--8o6a.crwhg.buzz/web/index.php
 # 架构：WordPress 伪 MacCMS 路由；标准 MacCMS JSON API 已禁用(404)
