@@ -9,7 +9,7 @@ import urllib.parse
 import ssl
 
 BASE_URL = "https://lysh.wandanba.biz"
-UA = "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36"
+UA = "Mozilla/5.0 (Linux; Android 13; SM-S9080) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
 # 分类映射
 TYPE_MAP = {
